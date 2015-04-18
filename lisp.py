@@ -56,16 +56,21 @@ def parse(s, i=0):
     else:
         return cur
 
-builtins = {
-        '+': lambda *args: sum(args),
-        '-': lambda *args: (reduce(operator.sub, args, 0)
-                            if len(args) == 1
-                            else reduce(operator.sub, args)),
-        '*': lambda *args: reduce(operator.mul, args, 1),
-        '/': lambda x, y: x / y,
-        'display': lambda *args: [sys.stdout.write(
-            ', '.join(repr(x) for x in args) + '\n'), None][-1],
-        }
+
+class PyFuncs(dict):
+    def __getitem__(self, key):
+        if key in self:
+            return dict.__getitem__(self, key)
+        elif list_to_py(key) in self:
+            return dict.__getitem__(self, lisp_to_py(key))
+        return dict.__getitem__(self, key)
+
+def lisp_to_py(s):
+    s = s.replace('-', '_')
+    if s.endswith('?'):
+        s = s[:-1] + 'q'
+    return s
+
 
 def eval(ast):
     """
@@ -85,6 +90,9 @@ def eval(ast):
         for form in ast[1:]:
             result = eval(form)
         return result
+    elif ast[0] == 'loop':
+        while True:
+            result = eval(ast[1])
     elif ast[0] in builtins:
         return builtins[ast[0]](*[eval(f) for f in ast[1:]])
     elif ast[0] == 'if':
@@ -143,14 +151,52 @@ def eval_generator(ast):
         elif len(ast) == 4:
             yield from eval_generator(ast[3])
 
+
+def mutable_version(tree):
+    if isinstance(tree, (tuple, list)):
+        return [mutable_version(x) for x in tree]
+    return tree
+
+
 class Evaluation(object):
+    """Annotate AST with last time run, eval_tree at that time,
+    and in current eval what value is there"""
     def __init__(self, ast):
         self.ast = ast
-        self.eval_tree = ast
-        self.path = [ast]
+        self.eval_tree = mutable_version(ast)
+        self.path = [self.eval_tree]
 
-    def eval_step(self):
-        current = self.path[-1]
+
+def dict_of_public_methods(obj):
+    return {key: getattr(obj, key)
+            for key in dir(obj)
+            if callable(getattr(obj, key)) and not key.startswith('_')}
+
+
+builtins = PyFuncs({
+    '+': lambda *args: sum(args),
+    '-': lambda *args: (reduce(operator.sub, args, 0)
+                        if len(args) == 1
+                        else reduce(operator.sub, args)),
+    '*': lambda *args: reduce(operator.mul, args, 1),
+    '/': lambda x, y: x / y,
+    'display': lambda *args: [sys.stdout.write(
+        ', '.join(repr(x) for x in args) + '\n'), None][-1],
+    })
+import gamelib
+g = gamelib.Game()
+builtins.update(dict_of_public_methods(g))
+
+
+game = """
+(loop
+    (do
+        (background 100 100 100)
+        (draw_ball 50 100)
+        (render)))
+"""
+eval(parse(game))
+
 
 if __name__ == '__main__':
     import doctest
