@@ -7,10 +7,19 @@ ideas:
 
 
 TODO:
-    parse language that does pygamey stuff
+  - [ ] parse language that does pygamey stuff
+    - [ ] lisp without first class functions
+    - [x] pygamey bindings
 
     should be able to swap out portions of AST at any time
     store last time each function was run
+
+  - [ ] stateful OO partial evaluator
+    - [ ] original ast
+
+
+ASTs are associated directly with functions, and no macros allowed
+If we enforce no inner functions, no closures,
 
 """
 from __future__ import division
@@ -19,6 +28,7 @@ import random
 import re
 import sys
 from functools import reduce
+from collections import namedtuple
 
 
 def tokenize(s):
@@ -59,30 +69,11 @@ def parse(s, i=0):
         return cur
 
 
-class PyFuncs(dict):
-    def __getitem__(self, key):
-        if dict.__contains__(self, key):
-            return dict.__getitem__(self, key)
-        elif dict.__contains__(self, lisp_to_py(key)):
-            return dict.__getitem__(self, lisp_to_py(key))
-        return dict.__getitem__(self, key)
-
-    def __contains__(self, key):
-        try:
-            self[key]
-        except KeyError:
-            return False
-        else:
-            return True
-
-def lisp_to_py(s):
-    s = s.replace('-', '_')
-    if s.endswith('?'):
-        s = s[:-1] + 'q'
-    return s
+class Lambda(namedtuple('baselambda', ['params', 'ast', 'env'])):
+    """Anonymous function (annoying for live reloading)"""
 
 
-def eval(ast):
+def eval(ast, env=None):
     """
 
     >>> eval(('-', 1, 2))
@@ -93,27 +84,52 @@ def eval(ast):
     1
     2
     3
+    >>> eval((('lambda', 'x', 'y', 'z', ('+', 'x', 'y', 'z')), 1, 2, 3))
+    6
     """
+    if env is None:
+        env = [builtins, {}]
+
     if isinstance(ast, (int, float)):
         return ast
+    if isinstance(ast, str):
+        return lookup(ast, env)
+    if not isinstance(ast, (list, tuple)):
+        raise ValueError(ast)
+
     if ast[0] == 'do':
         for form in ast[1:]:
-            result = eval(form)
+            result = eval(form, env)
         return result
     elif ast[0] == 'loop':
         while True:
-            result = eval(ast[1])
-    elif ast[0] in builtins:
-        return builtins[ast[0]](*[eval(f) for f in ast[1:]])
+            result = eval(ast[1], env)
     elif ast[0] == 'if':
         assert len(ast) in (3, 4)
         if eval(ast[1]):
-            return eval(ast[2])
+            return eval(ast[2], env)
         elif len(ast) == 4:
-            return eval(ast[3])
+            return eval(ast[3], env)
         else:
             return None
-    raise ValueError(ast)
+    elif ast[0] == 'lambda':
+        assert all(isinstance(x, str) for x in ast[1:-1])
+        return Lambda(params=ast[1:-1], ast=ast[-1], env=[{}])
+    else:  # not a special form
+        func = eval(ast[0], env)
+        args = [eval(f, env) for f in ast[1:]]
+        if isinstance(func, Lambda):
+            return eval(func.ast, env + [{p: a for p, a in zip(func.params, args)}])
+        elif callable(func):
+            return builtins[ast[0]](*[eval(f, env) for f in ast[1:]])
+        raise ValueError(ast)
+
+
+def lookup(symbol, env):
+    for scope in env:
+        if symbol in scope:
+            return scope[symbol]
+    raise NameError(repr(symbol) + repr(env))
 
 
 class Incomplete:
@@ -142,7 +158,7 @@ def eval_generator(ast):
     1
     2
     3
-    [Incomplete, Incomplete, Incomplete, None]
+    [Incomplete, Incomplete, Incomplete, Incomplete, Incomplete, Incomplete, None]
     """
     if isinstance(ast, (int, float)):
         yield ast
@@ -153,7 +169,13 @@ def eval_generator(ast):
                 yield Incomplete
         yield value
     elif ast[0] in builtins:
-        yield builtins[ast[0]](*[eval(f) for f in ast[1:]])
+        args = []
+        for form in ast[1:]:
+            g = eval_generator(form)
+            for value in g:
+                yield Incomplete
+            args.append(value)
+        yield builtins[ast[0]](*args)
     elif ast[0] == 'if':
         assert len(ast) in (3, 4)
         g = eval_generator(ast[1])
@@ -186,6 +208,30 @@ def dict_of_public_methods(obj):
             if callable(getattr(obj, key)) and not key.startswith('_')}
 
 
+class PyFuncs(dict):
+    def __getitem__(self, key):
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        elif dict.__contains__(self, lisp_to_py(key)):
+            return dict.__getitem__(self, lisp_to_py(key))
+        return dict.__getitem__(self, key)
+
+    def __contains__(self, key):
+        try:
+            self[key]
+        except KeyError:
+            return False
+        else:
+            return True
+
+
+def lisp_to_py(s):
+    s = s.replace('-', '_')
+    if s.endswith('?'):
+        s = s[:-1] + 'q'
+    return s
+
+
 builtins = PyFuncs({
     '+': lambda *args: sum(args),
     '-': lambda *args: (reduce(operator.sub, args, 0)
@@ -212,9 +258,11 @@ game = """
             (draw_ball (mousex) (mousey)))
         (render)))
 """
-eval(parse(game))
 
 
 if __name__ == '__main__':
+    eval((('lambda', 'x', 'y', 'z', ('+', 'x', 'y', 'z')), 1, 2, 3))
+
     import doctest
     doctest.testmod()
+    eval(parse(game))
