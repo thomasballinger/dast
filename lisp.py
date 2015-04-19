@@ -14,12 +14,61 @@ TODO:
     should be able to swap out portions of AST at any time
     store last time each function was run
 
-  - [ ] stateful OO partial evaluator
-    - [ ] original ast
+  - [ ] stateful OO evaluator
+    - [ ] partial evaluator
+    - [ ] snapshotting
+    - [ ] log every dereference
+    - [ ] log every lambda function call
 
 
 ASTs are associated directly with functions, and no macros allowed
 If we enforce no inner functions, no closures,
+
+Closures are fine - the annoying thing is f = cond ? func1 : func2
+no this is ok - if the cond code changes, we'll rerun this.
+              - if the func1 we chose changes, change func1!
+
+
+
+
+
+If we use the "rollback to last use of that code" technique, it seems
+ok to use lambdas maybe? But if we didn't dynamically choose the ast
+for a function then we wouldn't need to roll back.
+
+Seems like we can do the same thing with values in the environment
+For every value, record the last time it was accessed. Rewind
+execution to that point when it's changed.
+
+If the value is live editing
+a lambda value, no problem - roll back to the last time we accessed the function.
+
+If editing the ast, diff the trees and find out which 
+
+
+Two different kinds of live reload: changing values (including functions)
+and changing initial code, which (based on tree diffs?) triggers rollback?
+
+
+
+Another idea: turn everything into environmental updates - do the diffs at this level,
+rerun the code to find out how the environment differs, then change values that need to be changed!
+
+
+
+
+Going to give up on tree diffing or something to find a function's source in the new AST given that we knew it in the old one.
+
+INSTEAD: Reevaluate everything, 
+
+It's great 
+
+
+Named functions (and a single global function namespace) solves associating ast with code
+Log every function invocation, save state snapshots at each function invocation
+
+
+Do functions have closures still? If they do, you changed the code around it! So rerun, including the defun!
 
 """
 from __future__ import division
@@ -200,6 +249,13 @@ class Evaluation(object):
         self.ast = ast
         self.eval_tree = mutable_version(ast)
         self.path = [self.eval_tree]
+
+    def update_code(self, ast):
+        """With a new ast, find which functions changed
+
+        Find all the function definitions, """
+
+#TODO: treediff two syntax trees
 
 
 def dict_of_public_methods(obj):
