@@ -23,12 +23,22 @@ class Game(object):
         pygame.display.flip()
         for event in pygame.event.get():
             if event.type == pygame.QUIT: sys.exit()
+            print(event)
 
     def _keypressed(key):
         def pressed(self):
             keyState = pygame.key.get_pressed()
             return keyState[key]
         return pressed
+
+    def mousepressedq(self):
+        return pygame.mouse.get_pressed()[0]
+
+    def mousex(self):
+        return pygame.mouse.get_pos()[0]
+
+    def mousey(self):
+        return pygame.mouse.get_pos()[1]
 
     upkeyq = _keypressed(pygame.K_UP)
     downkeyq = _keypressed(pygame.K_DOWN)

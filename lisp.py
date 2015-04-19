@@ -15,6 +15,7 @@ TODO:
 """
 from __future__ import division
 import operator
+import random
 import re
 import sys
 from functools import reduce
@@ -27,7 +28,8 @@ def tokenize(s):
     ['(', '+', '(', 'thing', '1', '2', ')', '(', 'other', '3', '4', ')', ')']
 
     """
-    return re.findall(r'[()]|[\w\-+/*]+', s)
+    return re.findall(r'[()]|[\w\-+/*?!]+', s)
+
 
 def parse(s, i=0):
     """Lispy syntax -> AST
@@ -59,11 +61,19 @@ def parse(s, i=0):
 
 class PyFuncs(dict):
     def __getitem__(self, key):
-        if key in self:
+        if dict.__contains__(self, key):
             return dict.__getitem__(self, key)
-        elif list_to_py(key) in self:
+        elif dict.__contains__(self, lisp_to_py(key)):
             return dict.__getitem__(self, lisp_to_py(key))
         return dict.__getitem__(self, key)
+
+    def __contains__(self, key):
+        try:
+            self[key]
+        except KeyError:
+            return False
+        else:
+            return True
 
 def lisp_to_py(s):
     s = s.replace('-', '_')
@@ -101,6 +111,9 @@ def eval(ast):
             return eval(ast[2])
         elif len(ast) == 4:
             return eval(ast[3])
+        else:
+            return None
+    raise ValueError(ast)
 
 
 class Incomplete:
@@ -182,17 +195,21 @@ builtins = PyFuncs({
     '/': lambda x, y: x / y,
     'display': lambda *args: [sys.stdout.write(
         ', '.join(repr(x) for x in args) + '\n'), None][-1],
+    'coinflip': lambda: random.choice([True, False])
     })
 import gamelib
 g = gamelib.Game()
 builtins.update(dict_of_public_methods(g))
+
+assert 'upkey?' in builtins
 
 
 game = """
 (loop
     (do
         (background 100 100 100)
-        (draw_ball 50 100)
+        (if (mousepressed?)
+            (draw_ball (mousex) (mousey)))
         (render)))
 """
 eval(parse(game))
