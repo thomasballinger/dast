@@ -1,3 +1,4 @@
+from __future__ import division
 import sys
 import pygame
 
@@ -7,16 +8,31 @@ class Game(object):
     def __init__(self):
         pygame.init()
 
-        size = width, height = 320, 240
-        self.screen = pygame.display.set_mode(size)
+        self.size = width, height = 320, 240
+        self.screen = pygame.display.set_mode(self.size)
         self.ball = pygame.image.load("ball.gif")
 
+        pygame.event.set_grab(True)
+
+    def width(self):
+        return self.size[0]
+
+    def height(self):
+        return self.size[1]
+
     def draw_ball(self, x, y):
-        rect = pygame.Rect(x, y, self.ball.get_rect().width, self.ball.get_rect().height)
+        old_rect = self.ball.get_rect()
+        x = x - (old_rect.width / 2)
+        y = y - old_rect.height
+        rect = pygame.Rect(x, y, old_rect.width, old_rect.height)
         self.screen.blit(self.ball, rect)
 
+    def draw(self, x, y, r, g, b):
+        w, h = 10, 10
+        rect = pygame.Rect(x-w/2, y-h/2, w, h)
+        pygame.draw.rect(self.screen, (r, g, b), rect)
+
     def background(self, r, g, b):
-        print(r, g, b)
         self.screen.fill((r, g, b))
 
     def render(self):

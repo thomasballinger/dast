@@ -87,14 +87,14 @@ def tokenize(s):
     ['(', '+', '(', 'thing', '1', '2', ')', '(', 'other', '3', '4', ')', ')']
 
     """
-    return re.findall(r'[()]|[\w\-+/*?!]+', s)
+    return re.findall(r"""[()]|[\w\-+/*=<>?!]+|["].*?["]|['].*?[']""", s)
 
 
 def parse(s, i=0):
     """Lispy syntax -> AST
 
-    >>> parse('(+ (thing 1 2) (other 3 4))')
-    ('+', ('thing', 1, 2), ('other', 3, 4))
+    >>> parse('(+ (thing 1 2) (other 3 "4"))')
+    ('+', ('thing', 1, 2), ('other', 3, '"4"'))
 
     """
     if isinstance(s, str):
@@ -104,7 +104,10 @@ def parse(s, i=0):
     if cur == '(':
         form = []
         while True:
-            f = parse(s)
+            try:
+                f = parse(s)
+            except StopIteration:
+                raise ValueError("forgot to close something? %r" % (form, ))
             if f == ')':
                 return tuple(form)
             form.append(f)
@@ -118,11 +121,11 @@ def parse(s, i=0):
         return cur
 
 
-class Lambda(namedtuple('baselambda', ['params', 'ast', 'env'])):
-    """Anonymous function (annoying for live reloading)"""
+class Function(namedtuple('fun', ['name', 'params', 'ast', 'env'])):
+    """Named function, duplicate names aren't allowed"""
 
 
-def eval(ast, env=None):
+def eval(ast, env=None, funs=None):
     """
 
     >>> eval(('-', 1, 2))
@@ -133,52 +136,99 @@ def eval(ast, env=None):
     1
     2
     3
-    >>> eval((('lambda', 'x', 'y', 'z', ('+', 'x', 'y', 'z')), 1, 2, 3))
+    >>> eval(('do', ('fun', 'three', 'x', 'y', 'z', ('+', 'x', 'y', 'z')),
+    ...             ('three', 1, 2, 3)))
     6
+    >>> eval(('if', 1, 2, 3))
+    2
+    >>> funs = {}
+    >>> eval(parse('''
+    ... (fun maybe cond
+    ...     (if (= cond 0)
+    ...         1))'''), funs=funs)
+    >>> eval(parse('(maybe 0)'), funs=funs)
+    1
     """
     if env is None:
         env = [builtins, {}]
+    if funs is None:
+        funs = {}
 
     if isinstance(ast, (int, float)):
         return ast
     if isinstance(ast, str):
-        return lookup(ast, env)
+        start, end = ast[0], ast[-1]
+        if start == end and start in ["'", '"']:
+            return ast[1:-1]
+        return lookup(ast, env, funs)
     if not isinstance(ast, (list, tuple)):
         raise ValueError(ast)
 
     if ast[0] == 'do':
         for form in ast[1:]:
-            result = eval(form, env)
+            result = eval(form, env, funs)
         return result
     elif ast[0] == 'loop':
         while True:
-            result = eval(ast[1], env)
+            result = eval(ast[1], env, funs)
     elif ast[0] == 'if':
         assert len(ast) in (3, 4)
-        if eval(ast[1]):
-            return eval(ast[2], env)
+        result = eval(ast[1], env, funs)
+        if result:
+            return eval(ast[2], env, funs)
         elif len(ast) == 4:
-            return eval(ast[3], env)
+            return eval(ast[3], env, funs)
         else:
             return None
+    elif ast[0] == 'fun':
+        assert all(isinstance(x, str) for x in ast[1:-1])
+        fun = Function(name=ast[1], params=ast[2:-1], ast=ast[-1], env=env)
+        if fun.name in funs:
+            raise ValueError("Two definitions for function %s" % (fun.name, ))
+        funs[fun.name] = fun
+        return None
     elif ast[0] == 'lambda':
         assert all(isinstance(x, str) for x in ast[1:-1])
-        return Lambda(params=ast[1:-1], ast=ast[-1], env=[{}])
+        fun = Function(name=ast[0], params=ast[1:-1], ast=ast[-1], env=env)
+        return fun
+    elif ast[0] == 'set':
+        assert len(ast) == 3, ast
+        assert isinstance(ast[1], str)
+        set(ast[1], eval(ast[2], env, funs), env)
+
     else:  # not a special form
-        func = eval(ast[0], env)
-        args = [eval(f, env) for f in ast[1:]]
-        if isinstance(func, Lambda):
-            return eval(func.ast, env + [{p: a for p, a in zip(func.params, args)}])
+        func = eval(ast[0], env, funs)
+        args = [eval(f, env, funs) for f in ast[1:]]
+        if isinstance(func, Function):
+            if len(func.params) != len(args):
+                raise TypeError('func %s takes %d args, %d given' %
+                                (func.name, len(func.params), len(args)))
+            return eval(func.ast, env + [{p: a for p, a in zip(func.params, args)}], funs)
         elif callable(func):
-            return builtins[ast[0]](*[eval(f, env) for f in ast[1:]])
-        raise ValueError(ast)
+            return func(*[eval(f, env, funs) for f in ast[1:]])
+        raise ValueError("%r doesn't look like a function in %r" % (ast[0], ast))
 
 
-def lookup(symbol, env):
-    for scope in env:
+def lookup(symbol, env, funs=None):
+    assert isinstance(symbol, str), repr(symbol)
+    for scope in reversed(env):
         if symbol in scope:
             return scope[symbol]
-    raise NameError(repr(symbol) + repr(env))
+    if funs is not None and symbol in funs:
+        return funs[symbol]
+    raise NameError(repr(symbol) + '\n' + repr(env) + '\n' + repr(funs))
+
+
+def set(symbol, value, env):
+    assert isinstance(symbol, str), repr(str)
+    for scope in reversed(env):
+        if symbol in scope:
+            scope[symbol] = value
+            print('setting %s to %r' % (symbol, value))
+            print(env)
+            return
+    else:
+        env[-1][symbol] = value
 
 
 class Incomplete:
@@ -186,54 +236,6 @@ class Incomplete:
     def __repr__(self):
         return 'Incomplete'
 Incomplete = Incomplete()
-
-
-def eval_with_generator(ast):
-    """
-    >>> eval_with_generator(('+', ('-', 1, 2), ('+', 3, 4)))
-    6
-    """
-    (result, ) = [x for x in eval_generator(ast) if x is not Incomplete]
-    return result
-
-
-def eval_generator(ast):
-    """
-
-    >>> [x for x in eval_generator(['+', 1, 2]) if x is not Incomplete]
-    [3]
-    >>> g = eval_generator(('do', ('display', 1), ('display', 2), ('display', 3)))
-    >>> list(g)
-    1
-    2
-    3
-    [Incomplete, Incomplete, Incomplete, Incomplete, Incomplete, Incomplete, None]
-    """
-    if isinstance(ast, (int, float)):
-        yield ast
-    elif ast[0] == 'do':
-        for form in ast[1:]:
-            g = eval_generator(form)
-            for value in g:
-                yield Incomplete
-        yield value
-    elif ast[0] in builtins:
-        args = []
-        for form in ast[1:]:
-            g = eval_generator(form)
-            for value in g:
-                yield Incomplete
-            args.append(value)
-        yield builtins[ast[0]](*args)
-    elif ast[0] == 'if':
-        assert len(ast) in (3, 4)
-        g = eval_generator(ast[1])
-        for value in g:
-            yield Incomplete
-        if value:
-            yield from eval_generator(ast[2])
-        elif len(ast) == 4:
-            yield from eval_generator(ast[3])
 
 
 def mutable_version(tree):
@@ -280,6 +282,9 @@ class PyFuncs(dict):
         else:
             return True
 
+    def __repr__(self):
+        return '{BuiltinFunctions}'
+
 
 def lisp_to_py(s):
     s = s.replace('-', '_')
@@ -297,8 +302,16 @@ builtins = PyFuncs({
     '/': lambda x, y: x / y,
     'display': lambda *args: [sys.stdout.write(
         ', '.join(repr(x) for x in args) + '\n'), None][-1],
-    'coinflip': lambda: random.choice([True, False])
+    'coinflip': lambda: random.choice([True, False]),
+    '=': lambda *args: all(x == args[0] for x in args),
+    '<': lambda x, y: x < y,
+    '>': lambda x, y: x > y,
+    'list': lambda *args: tuple(args),
+    'foreach': lambda func, arr: [func(x) for x in arr][-1],
+    'len': len,
     })
+
+
 import gamelib
 g = gamelib.Game()
 builtins.update(dict_of_public_methods(g))
@@ -307,12 +320,46 @@ assert 'upkey?' in builtins
 
 
 game = """
-(loop
-    (do
-        (background 100 100 100)
-        (if (mousepressed?)
-            (draw_ball (mousex) (mousey)))
-        (render)))
+(do
+    (set x 0)
+    (set y 0)
+    (set dy 0)
+    (set dx 1)
+    (set obstacles (list 1 0 1 0 0 1 0 0))
+    (fun draw-ball-at-mouse (do
+        (display 1)
+        (draw_ball (mousex) (mousey))))
+    (fun jump (do
+        (display 'jump!')
+        (if (= y 0)
+            (do (set dy 20)(display dy)))))
+    (fun step (do
+        (set x (+ x dx))
+        (set y (+ y dy))
+        (if (> x (width))
+            (set x 0))
+        (display x y dx dy)))
+    (fun gravity
+        (if (> y 0)
+            (set dy (- dy 1))
+            (do (set dy 0) (set y 0))))
+    (fun draw-ob x
+        (draw x, (height), 200, 200, 200))
+    (fun draw-obs (do
+        (draw-ob 20)
+        (draw-ob 60)
+        (draw-ob 100)
+        (draw-ob 180)))
+    (loop
+        (do
+            (if (mousepressed?)
+                (jump))
+            (step)
+            (gravity)
+            (background 100 100 100)
+            (draw-obs)
+            (draw-ball x (- (height) y))
+            (render))))
 """
 
 
