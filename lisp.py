@@ -238,24 +238,42 @@ class Incomplete:
 Incomplete = Incomplete()
 
 
-def mutable_version(tree):
-    if isinstance(tree, (tuple, list)):
-        return [mutable_version(x) for x in tree]
-    return tree
-
-
 class Evaluation(object):
     """Annotate AST with last time run, eval_tree at that time,
     and in current eval what value is there"""
     def __init__(self, ast):
         self.ast = ast
-        self.eval_tree = mutable_version(ast)
-        self.path = [self.eval_tree]
+        self.eval_tree = [None, [builtins, {}]]
+        self.funs = {}
 
     def update_code(self, ast):
         """With a new ast, find which functions changed
 
         Find all the function definitions, """
+        raise NotImplemented('yet')  # TODO
+
+    def step(self):
+        """Take one incremental evaluation step, record it, and return.
+
+        Progressively transforms self.eval_tree into an evaluated tree.
+        Wrap it in a list so the pattern of modififying the parent works
+        at the top level.
+        OR let's traverse the AST and add stuff as we go! (better idea)
+        Build the eval tree as we go. Make one change each time, store
+        partial evaluation information in it!
+        """
+        # We don't need no stinking recursion!
+
+        if isinstance(ast, (int, float)):
+            return ast
+        if isinstance(ast, str):
+            start, end = ast[0], ast[-1]
+            if start == end and start in ["'", '"']:
+                return ast[1:-1]
+            return lookup(ast, env, funs)
+        if not isinstance(ast, (list, tuple)):
+            raise ValueError(ast)
+
 
 #TODO: treediff two syntax trees
 
