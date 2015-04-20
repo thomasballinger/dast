@@ -238,12 +238,72 @@ class Incomplete:
 Incomplete = Incomplete()
 
 
+def Eval(ast, env, funs):
+    """Returns an instance of an iterator which will yield the result"""
+    if isinstance(ast, (int, float)):
+        return Literal(ast)
+    if isinstance(ast, str):
+        start, end = ast[0], ast[-1]
+        if start == end and start in ["'", '"']:
+            return ast[1:-1]
+        return Literal(lookup(ast, env, funs))
+    if not isinstance(ast, (list, tuple)):
+        raise ValueError(ast)
+
+
+class Literal(object):
+    def __init__(self, ast):
+        self.value = ast
+        self.done = False
+
+    def __next__(self):
+        if self.done:
+            raise StopIteration
+        self.done = True
+        return self.value
+
+
+class If(object):
+    """
+
+    >>> If('1', '2', '3', [{}])
+    """
+    def __init__(self, cond, case1, case2, env):
+        self.cond = cond
+        self.case1 = case1
+        self.case2 = case2
+        self.env = env
+        self.current_iterator = None
+
+    def __next__(self):
+        if not hasattr(self, 'cond_result'):
+            if not hasattr('current_iterator'):
+                self.current_iterator = Eval(self.cond)
+
+            for value in Eval(self.con):
+                re
+
+            return Incomplete
+
+
 class Evaluation(object):
     """Annotate AST with last time run, eval_tree at that time,
-    and in current eval what value is there"""
-    def __init__(self, ast):
+    and in current eval what value is there
+
+    >>> e = Evaluation(parse('(if 1 1)'), {});
+    >>> e.ast
+    ('if', 1, 1)
+    >>> e.eval_tree
+    [None, {}]
+    >>> e.step()
+    >>> e.eval_tree
+    [('if', (Incomplete, ), {}]
+    """
+    def __init__(self, ast, env=None):
         self.ast = ast
-        self.eval_tree = [None, [builtins, {}]]
+        if env == None:
+            env = [builtins, {}]
+        self.eval_tree = [None, env]
         self.funs = {}
 
     def update_code(self, ast):
@@ -339,7 +399,7 @@ assert 'upkey?' in builtins
 
 game = """
 (do
-    (set x 0)
+    (set x 1)
     (set y 0)
     (set dy 0)
     (set dx 1)
@@ -384,6 +444,6 @@ game = """
 if __name__ == '__main__':
     eval((('lambda', 'x', 'y', 'z', ('+', 'x', 'y', 'z')), 1, 2, 3))
 
-    import doctest
-    doctest.testmod()
+    #import doctest
+    #doctest.testmod()
     eval(parse(game))
