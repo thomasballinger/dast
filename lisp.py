@@ -80,47 +80,6 @@ from functools import reduce
 from collections import namedtuple
 
 
-def tokenize(s):
-    """
-
-    >>> tokenize('(+ (thing 1 2) (other 3 4))')
-    ['(', '+', '(', 'thing', '1', '2', ')', '(', 'other', '3', '4', ')', ')']
-
-    """
-    return re.findall(r"""[()]|[\w\-+/*=<>?!]+|["].*?["]|['].*?[']""", s)
-
-
-def parse(s, i=0):
-    """Lispy syntax -> AST
-
-    >>> parse('(+ (thing 1 2) (other 3 "4"))')
-    ('+', ('thing', 1, 2), ('other', 3, '"4"'))
-
-    """
-    if isinstance(s, str):
-        s = iter(tokenize(s))
-    cur = next(s)
-
-    if cur == '(':
-        form = []
-        while True:
-            try:
-                f = parse(s)
-            except StopIteration:
-                raise ValueError("forgot to close something? %r" % (form, ))
-            if f == ')':
-                return tuple(form)
-            form.append(f)
-    elif cur == ')':
-        return ')'
-    elif re.match(r'[+-]?\d+', cur):
-        return int(cur)
-    elif re.match('[+-]?\d+\.?\d*', cur):
-        return float(cur)
-    else:
-        return cur
-
-
 class Function(namedtuple('fun', ['name', 'params', 'ast', 'env'])):
     """Named function, duplicate names aren't allowed"""
 
@@ -251,53 +210,90 @@ def Eval(ast, env, funs):
         raise ValueError(ast)
 
 
+def gen_return(g):
+    try:
+        while True:
+            next(g)
+    except StopIteration as e:
+        return e.args[0]
+
+
+def gen_return_with_intermediates(g):
+    results = []
+    try:
+        while True:
+            results.append(next(g))
+    except StopIteration as e:
+        results.append(e.args[0])
+        return results
+
+
 class Literal(object):
+    """
+    >>> gen_return_with_intermediates(Literal(1))
+    [1]
+    >>> gen_return_with_intermediates(Literal('"asdf"'))
+    ['asdf']
+
+    """
     def __init__(self, ast):
-        self.value = ast
+        assert isinstance(ast, (float, int, str))
+        if isinstance(ast, str):
+            start, end = ast[0], ast[-1]
+            if start in ['"', "'"] and start == end:
+                self.value = ast[1:-1]
+            else:
+                assert False, ast+" is't a string literal"
+        else:
+            self.value = ast
         self.done = False
 
     def __next__(self):
         if self.done:
-            raise StopIteration
+            raise StopIteration()
         self.done = True
-        return self.value
+        raise StopIteration(self.value)
 
 
 class If(object):
     """
+    >>> i = If(1, 2, 3, {})
+    >>> i._reference()
+    next(i)
+    i.cond_result
+    [Incomplete, 2]
 
-    >>> If('1', '2', '3', [{}])
     """
     def __init__(self, cond, case1, case2, env):
         self.cond = cond
         self.case1 = case1
         self.case2 = case2
         self.env = env
-        self.current_iterator = None
 
-    def __next__(self):
-        if not hasattr(self, 'cond_result'):
-            if not hasattr('current_iterator'):
-                self.current_iterator = Eval(self.cond)
+    def _reference(self):
+        """Beautiful generator version of this function"""
+        result = yield from Eval(self.cond)
+        if result:
+            return (yield from Eval(self.case1))
+        elif self.case1 is None:
+            return None
+        else:
+            return (yield from Eval(self.case2))
 
-            for value in Eval(self.con):
-                re
-
-            return Incomplete
-
+    def copy(self):
 
 class Evaluation(object):
     """Annotate AST with last time run, eval_tree at that time,
     and in current eval what value is there
 
-    >>> e = Evaluation(parse('(if 1 1)'), {});
-    >>> e.ast
-    ('if', 1, 1)
-    >>> e.eval_tree
-    [None, {}]
-    >>> e.step()
-    >>> e.eval_tree
-    [('if', (Incomplete, ), {}]
+    #>>> e = Evaluation(parse('(if 1 1)'), {});
+    #>>> e.ast
+    #('if', 1, 1)
+    #>>> e.eval_tree
+    #[None, {}]
+    #>>> e.step()
+    #>>> e.eval_tree
+    #[('if', (Incomplete, ), {}]
     """
     def __init__(self, ast, env=None):
         self.ast = ast
@@ -324,15 +320,6 @@ class Evaluation(object):
         """
         # We don't need no stinking recursion!
 
-        if isinstance(ast, (int, float)):
-            return ast
-        if isinstance(ast, str):
-            start, end = ast[0], ast[-1]
-            if start == end and start in ["'", '"']:
-                return ast[1:-1]
-            return lookup(ast, env, funs)
-        if not isinstance(ast, (list, tuple)):
-            raise ValueError(ast)
 
 
 #TODO: treediff two syntax trees
@@ -344,57 +331,10 @@ def dict_of_public_methods(obj):
             if callable(getattr(obj, key)) and not key.startswith('_')}
 
 
-class PyFuncs(dict):
-    def __getitem__(self, key):
-        if dict.__contains__(self, key):
-            return dict.__getitem__(self, key)
-        elif dict.__contains__(self, lisp_to_py(key)):
-            return dict.__getitem__(self, lisp_to_py(key))
-        return dict.__getitem__(self, key)
-
-    def __contains__(self, key):
-        try:
-            self[key]
-        except KeyError:
-            return False
-        else:
-            return True
-
-    def __repr__(self):
-        return '{BuiltinFunctions}'
-
-
-def lisp_to_py(s):
-    s = s.replace('-', '_')
-    if s.endswith('?'):
-        s = s[:-1] + 'q'
-    return s
-
-
-builtins = PyFuncs({
-    '+': lambda *args: sum(args),
-    '-': lambda *args: (reduce(operator.sub, args, 0)
-                        if len(args) == 1
-                        else reduce(operator.sub, args)),
-    '*': lambda *args: reduce(operator.mul, args, 1),
-    '/': lambda x, y: x / y,
-    'display': lambda *args: [sys.stdout.write(
-        ', '.join(repr(x) for x in args) + '\n'), None][-1],
-    'coinflip': lambda: random.choice([True, False]),
-    '=': lambda *args: all(x == args[0] for x in args),
-    '<': lambda x, y: x < y,
-    '>': lambda x, y: x > y,
-    'list': lambda *args: tuple(args),
-    'foreach': lambda func, arr: [func(x) for x in arr][-1],
-    'len': len,
-    })
-
-
 import gamelib
 g = gamelib.Game()
 builtins.update(dict_of_public_methods(g))
 
-assert 'upkey?' in builtins
 
 
 game = """
@@ -444,6 +384,6 @@ game = """
 if __name__ == '__main__':
     eval((('lambda', 'x', 'y', 'z', ('+', 'x', 'y', 'z')), 1, 2, 3))
 
-    #import doctest
-    #doctest.testmod()
-    eval(parse(game))
+    import doctest
+    doctest.testmod()
+    #eval(parse(game))

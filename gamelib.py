@@ -1,5 +1,7 @@
 from __future__ import division
 import sys
+import operator
+import random
 import pygame
 
 
@@ -89,6 +91,51 @@ def test():
         screen.blit(ball, ballrect)
         pygame.display.flip()
 
+
+class PyFuncs(dict):
+    def __getitem__(self, key):
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        elif dict.__contains__(self, lisp_to_py(key)):
+            return dict.__getitem__(self, lisp_to_py(key))
+        return dict.__getitem__(self, key)
+
+    def __contains__(self, key):
+        try:
+            self[key]
+        except KeyError:
+            return False
+        else:
+            return True
+
+    def __repr__(self):
+        return '{BuiltinFunctions}'
+
+
+def lisp_to_py(s):
+    s = s.replace('-', '_')
+    if s.endswith('?'):
+        s = s[:-1] + 'q'
+    return s
+
+
+builtins = PyFuncs({
+    '+': lambda *args: sum(args),
+    '-': lambda *args: (reduce(operator.sub, args, 0)
+                        if len(args) == 1
+                        else reduce(operator.sub, args)),
+    '*': lambda *args: reduce(operator.mul, args, 1),
+    '/': lambda x, y: x / y,
+    'display': lambda *args: [sys.stdout.write(
+        ', '.join(repr(x) for x in args) + '\n'), None][-1],
+    'coinflip': lambda: random.choice([True, False]),
+    '=': lambda *args: all(x == args[0] for x in args),
+    '<': lambda x, y: x < y,
+    '>': lambda x, y: x > y,
+    'list': lambda *args: tuple(args),
+    'foreach': lambda func, arr: [func(x) for x in arr][-1],
+    'len': len,
+    })
 if __name__ == '__main__':
     test()
 
