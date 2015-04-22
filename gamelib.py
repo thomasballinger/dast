@@ -3,6 +3,7 @@ import sys
 import operator
 import random
 import pygame
+from functools import reduce
 
 
 class Game(object):
@@ -136,6 +137,19 @@ builtins = PyFuncs({
     'foreach': lambda func, arr: [func(x) for x in arr][-1],
     'len': len,
     })
+
+
+def dict_of_public_methods(obj):
+    return {key: getattr(obj, key)
+            for key in dir(obj)
+            if callable(getattr(obj, key)) and not key.startswith('_')}
+
+
+def game_methods():
+    g = Game()
+    return dict_of_public_methods(g)
+
+
 if __name__ == '__main__':
     test()
 

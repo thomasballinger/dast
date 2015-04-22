@@ -30,26 +30,29 @@ StopIteration
 1000
 """
 
-from gamelib import builtins, Game
+from gamelib import builtins, game_methods
 from lisp_parser import parse, Function, Lambda
 
 
 class Thunk(Exception):
     """Unfinished code to run"""
-    def __init__(self, g, func='?', args='?'):
+    def __init__(self, g, func='?', args='?', env='?'):
         self.g = g
-        self.func = func
-        self.args = args
+        self.func = func  # just for printing
+        self.args = args  # just for printing
+        self.env = env    # just for printing
 
     def __repr__(self):
-        return 'Thunk(%s %s)' % (self.func, self.args)
+        return 'Thunk(%s %s with env size: %s)' % (self.func, self.args, len(self.env))
 
 
-def run(s):
+def run(s, env=None, funs=None):
     ast = parse(s)
 
-    env = [builtins, {}]
-    funs = {}
+    if env is None:
+        env = [builtins, {}]
+    if funs is None:
+        funs = {}
 
     work = trampoline(eval(ast, env, funs))
     while True:
@@ -99,7 +102,7 @@ def eval(ast, env, funs):
     if ast[0] == 'lambda':
         return Lambda(ast[1:-1], ast[-1], env, funs)
     if ast[0] == 'set':
-        return (yield from Set(ast[1], ast[2]))
+        return (yield from Set(ast[1], ast[2], env, funs))
     if ast[0] == 'if':
         if len(ast) == 4:
             return (yield from If(*(ast[1:4] + (env, funs))))
@@ -120,12 +123,12 @@ def invocation(func_ast, expr_asts, env, funs):
         if len(func.params) != len(args):
             raise TypeError('func %s takes %d args, %d given: %r called on %r' %
                             (func.name, len(func.params), len(args), func_ast, expr_asts))
-        return Thunk(eval(func.ast, env + [{p: a for p, a in zip(func.params, args)}], funs), func, args)
+        return Thunk(eval(func.ast, env[:-1] + [{p: a for p, a in zip(func.params, args)}], funs), func, args, env)
     elif callable(func):
         def boringgen():
             yield
             return func(*args)
-        return Thunk(boringgen(), func, args)
+        return Thunk(boringgen(), func, args, env)
     raise ValueError("%r doesn't look like a function in %r" % (ast[0], ast))
 
 
@@ -175,13 +178,66 @@ def fun(name, params, ast, env, funs):
     return fun
 
 
-def Set(name, value):
+def Set(name, value, env, funs):
     assert isinstance(name, str)
-    value = (yield from eval(ast[2], env, funs))
-    setbang(name, value)
+    setbang(name, (yield from trampoline(eval(value, env, funs))), env)
     return value
 
+game = """
+(do
+    (set obstacles (list 1 0 1 0 0 1 0 0))
+    (fun draw-ball-at-mouse (do
+        (display 1)
+        (draw_ball (mousex) (mousey))))
+    (fun jump y dy (do
+        (display 'jump!')
+        (if (< y 1)
+            (do (display dy)
+                20)
+            dy)))
+    (fun step-x x dx
+        (+
+            (if (> x (width))
+                0
+                x)
+            dx))
+    (fun step-y y dy
+        (+ y dy))
+    (fun gravity y dy
+        (if (> y 0)
+            (- dy .01)
+            dy))
+    (fun ground y
+        (if (< y 1)
+            0
+            y))
+    (fun draw-ob x
+        (draw x (height) 200, 200, 200))
+    (fun draw-obs (do
+        (draw-ob 20)
+        (draw-ob 60)
+        (draw-ob 100)
+        (draw-ob 180)))
+    (fun mainloop x y dx dy (do
+        (if (mousepressed?)
+            (do
+                (set dy (jump y dy))
+                (display "yay")))
+        (set x (step-x x dx))
+        (set y (step-y y dy))
+        (set y (ground y))
+        (set dy (gravity y dy))
+        (background 100 100 100)
+        (draw-obs)
+        (draw-ball x (- (height) y))
+        (render)
+        (mainloop x y dx dy)))
+    (mainloop 0 0 1 0))
+"""
 
 if __name__ == '__main__':
     import doctest
-    doctest.testmod()
+    #doctest.testmod()
+
+    builtins.update(game_methods())
+    print(run(game))
