@@ -1,9 +1,19 @@
+"""
+
+
+>>> parse('+')
+'+'
+
+"""
+
 import re
 from collections import namedtuple
 
 
 class Function(namedtuple('Fun', ['name', 'params', 'ast', 'env', 'funs'])):
     """Named function, duplicate names aren't allowed"""
+    def __repr__(self):
+        return 'Function(name=%s, params=(%s,), ast=%r)' % (self.name, ', '.join(self.params), self.ast)
 
 
 class Lambda(namedtuple('Lambda', ['params', 'ast', 'env', 'funs'])):

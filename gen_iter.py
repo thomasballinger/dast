@@ -9,24 +9,58 @@ Beautiful generator versions of the code for testing against
 >>> run('((lambda x y (+ 1 y)) 2 3)')
 4
 
+>>> f = run(('(fun count x (count (+ x 1)))'))
+>>> f
+Function(name=count, params=(x,), ast=('count', ('+', 'x', 1)))
+>>> e = eval(parse('((fun count x (count (+ x 1))) 1)'), [{'+':lambda *a: sum(a)}], {})
+>>> next(e)
+Traceback (most recent call last):
+  ...
+Thunk: 1
+>>> next(invocation(parse('+'), [], [{'+':lambda *a: sum(a)}, {}], {}))
+Traceback (most recent call last):
+  ...
+Thunk
+>>> run('''((fun countto x y
+...             (do 1
+...             (if (< x y)
+...                 (countto (+ x 1) y)
+...                 x)))
+...         1 1000)''')
+1000
+
 """
 
 from gamelib import builtins, Game
 from lisp_parser import parse, Function, Lambda
 
 
+class Thunk(Exception):
+    """Unfinished code to run"""
+    def __init__(self, g, func='?', args='?'):
+        self.g = g
+        self.func = func
+        self.args = args
+
+    def __repr__(self):
+        return 'Thunk(%s %s)' % (self.func, self.args)
+
+
 def run(s):
     ast = parse(s)
-    e = eval(ast)
+
+    env = [builtins, {}]
+    funs = {}
+
+    work = trampoline(eval(ast, env, funs))
     while True:
         try:
-            next(e)
+            next(work)
         except StopIteration as e:
             if len(e.args) == 0:
                 return None
             else:
                 return e.args[0]
-
 
 def lookup(symbol, env, funs=None):
     assert isinstance(symbol, str), repr(symbol)
@@ -48,12 +82,7 @@ def setbang(symbol, value, env):
         env[-1][symbol] = value
 
 
-def eval(ast, env=None, funs=None):
-    if env is None:
-        env = [builtins, {}]
-    if funs is None:
-        funs = {}
-
+def eval(ast, env, funs):
     if isinstance(ast, (int, float)):
         return literal(ast)
     if isinstance(ast, str):
@@ -65,7 +94,7 @@ def eval(ast, env=None, funs=None):
         raise ValueError(ast)
 
     if ast[0] == 'do':
-        return (yield from do(*ast[1:]))
+        return (yield from do(ast[1:], env, funs))
     if ast[0] == 'fun':
         return fun(ast[1], ast[2:-1], ast[-1], env, funs)
     if ast[0] == 'lambda':
@@ -83,19 +112,33 @@ def eval(ast, env=None, funs=None):
 
 
 def invocation(func_ast, expr_asts, env, funs):
-    func = (yield from eval(func_ast))
+    func = (yield from eval(func_ast, env, funs))
     args = []
     for f in expr_asts:
-        args.append((yield from eval(f, env=env, funs=funs)))
+        args.append((yield from trampoline(eval(f, env, funs))))
 
     if isinstance(func, (Function, Lambda)):
         if len(func.params) != len(args):
-            raise TypeError('func %s takes %d args, %d given' %
-                            (func.name, len(func.params), len(args)))
-        return (yield from eval(func.ast, env + [{p: a for p, a in zip(func.params, args)}], funs))
+            raise TypeError('func %s takes %d args, %d given: %r called on %r' %
+                            (func.name, len(func.params), len(args), func_ast, expr_asts))
+        g = eval(func.ast, env + [{p: a for p, a in zip(func.params, args)}], funs)
+        raise Thunk(g, func, args)
     elif callable(func):
-        return func(*args)
+        def boringgen():
+            yield
+            return func(*args)
+        raise Thunk(boringgen(), func, args)
     raise ValueError("%r doesn't look like a function in %r" % (ast[0], ast))
+
+
+def trampoline(gen):
+    """Keeps exhausting a series of generators"""
+    while True:
+        try:
+            result = (yield from gen)
+            return result
+        except Thunk as e:
+            gen = e.g
 
 
 def literal(ast):
@@ -111,25 +154,25 @@ def literal(ast):
 
 
 def If(cond, case1, case2, env, funs):
-    result = yield from eval(cond)
+    result = yield from trampoline(eval(cond, env, funs))
     if result:
-        return (yield from eval(case1))
+        return (yield from eval(case1, env, funs))
     elif case2 is None:
         return None
     else:
-        return (yield from eval(case2))
+        return (yield from eval(case2, env, funs))
 
 
 def do(forms, env, funs):
     exprs = []
-    for f in forms:
-        exprs.append((yield from eval(f)))
-    return exprs[-1]
+    for f in forms[:-1]:
+        exprs.append((yield from trampoline(eval(f, env, funs))))
+    return (yield from eval(forms[-1], env, funs))
 
 
 def fun(name, params, ast, env, funs):
-    assert all(isinstance(x, str) for x in ast[1:-1])
-    fun = Function(name=ast[1], params=ast[2:-1], ast=ast[-1], env=env, funs=funs)
+    assert all(isinstance(x, str) for x in params)
+    fun = Function(name=name, params=params, ast=ast, env=env, funs=funs)
     if fun.name in funs:
         raise ValueError("Two definitions for function %s" % (fun.name, ))
     funs[fun.name] = fun
