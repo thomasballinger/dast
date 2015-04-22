@@ -16,11 +16,11 @@ Function(name=count, params=(x,), ast=('count', ('+', 'x', 1)))
 >>> next(e)
 Traceback (most recent call last):
   ...
-Thunk: 1
+StopIteration: 1
 >>> next(invocation(parse('+'), [], [{'+':lambda *a: sum(a)}, {}], {}))
 Traceback (most recent call last):
   ...
-Thunk
+StopIteration
 >>> run('''((fun countto x y
 ...             (do 1
 ...             (if (< x y)
@@ -28,7 +28,6 @@ Thunk
 ...                 x)))
 ...         1 1000)''')
 1000
-
 """
 
 from gamelib import builtins, Game
@@ -121,24 +120,21 @@ def invocation(func_ast, expr_asts, env, funs):
         if len(func.params) != len(args):
             raise TypeError('func %s takes %d args, %d given: %r called on %r' %
                             (func.name, len(func.params), len(args), func_ast, expr_asts))
-        g = eval(func.ast, env + [{p: a for p, a in zip(func.params, args)}], funs)
-        raise Thunk(g, func, args)
+        return Thunk(eval(func.ast, env + [{p: a for p, a in zip(func.params, args)}], funs), func, args)
     elif callable(func):
         def boringgen():
             yield
             return func(*args)
-        raise Thunk(boringgen(), func, args)
+        return Thunk(boringgen(), func, args)
     raise ValueError("%r doesn't look like a function in %r" % (ast[0], ast))
 
 
 def trampoline(gen):
     """Keeps exhausting a series of generators"""
-    while True:
-        try:
-            result = (yield from gen)
-            return result
-        except Thunk as e:
-            gen = e.g
+    result = (yield from gen)
+    while isinstance(result, Thunk):
+        result = (yield from result.g)
+    return result
 
 
 def literal(ast):
