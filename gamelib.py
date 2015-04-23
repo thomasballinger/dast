@@ -112,6 +112,9 @@ class PyFuncs(dict):
     def __repr__(self):
         return '{BuiltinFunctions}'
 
+    def __deepcopy__(self, memo):
+        return self
+
 
 def lisp_to_py(s):
     s = s.replace('-', '_')

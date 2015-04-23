@@ -4,6 +4,11 @@
 >>> parse('+')
 '+'
 
+>>> import game
+>>> ast = parse(game.game)
+>>> sorted(parsed_funs(ast).keys())
+['draw-ball-at-mouse', 'draw-ob', 'draw-obs', 'gravity', 'ground', 'jump', 'mainloop', 'step-x', 'step-y']
+
 """
 
 import re
@@ -59,6 +64,24 @@ def parse(s, i=0):
         return float(cur)
     else:
         return cur
+
+
+def parsed_funs(ast, map=None):
+    """Returns a map of fun names to fun asts"""
+    if map is None:
+        map = {}
+    if not isinstance(ast, (tuple, list)):
+        return
+    if ast[0] == 'fun':
+        if ast[1] in map:
+            raise ValueError('Fun %s declared in two locations' % (ast[1], ))
+        map[ast[1]] = ast
+
+    for form in ast:
+        parsed_funs(form, map)
+
+    return map
+
 
 if __name__ == '__main__':
     import doctest

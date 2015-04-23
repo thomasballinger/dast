@@ -16,18 +16,8 @@ Literal("a")
 ...                 x)))
 ...         1 2000)''')
 2000
-
-#>>> run('''(do
-#...            (fun inc x
-#...                (+ x 1))
-#...            (fun mainloop x y (do
-#...                (set x (inc x))
-#...                (set y (inc y))
-#...                (mainloop x y)))
-#...            (mainloop 1 2))''')
-#2000
-
 """
+import copy
 
 from gamelib import builtins
 from lisp_parser import parse, Function, Lambda
@@ -42,9 +32,26 @@ class Incomplete():
 Incomplete = Incomplete()
 
 
-def run(s, env=None, funs=None, debug=False):
+class GlobalFunctions(dict):
+    def __init__(self):
+        dict.__init__(self)
+        self.snapshots = {}
+
+    def set_eval_tree(self, tree):
+        self.top_level = tree
+
+    def about_to_call(self, func):
+        if not isinstance(func, (Function, Lambda)):
+            raise ValueError('?')
+        self.snapshots[func.name] = copy.deepcopy(self.top_level)
+
+    def __deepcopy__(self, memo):
+        return self
+
+
+def run(s, env=None, funs=None):
     """
-    >>> run('(+ 1 1)') 
+    >>> run('(+ 1 1)')
     2
     """
     ast = parse(s)
@@ -52,9 +59,10 @@ def run(s, env=None, funs=None, debug=False):
     if env is None:
         env = [builtins, {}]
     if funs is None:
-        funs = {}
+        funs = GlobalFunctions()
 
     e = Eval(ast, env, funs)
+    funs.set_eval_tree(e)
     while True:
         value = next(e)
         if value is Incomplete:
@@ -70,6 +78,18 @@ class BaseEval(object):
 
     def __iter__(self):
         return self
+
+    def __deepcopy__(self, memo):
+        # Not doing anything with memo because I think these are trees
+        cls = self.__class__
+        new = cls.__new__(cls)
+        for k, v in self.__dict__.items():
+            setattr(new, k, copy.deepcopy(v, memo))
+        return new
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self.__dict__ == other.__dict__
+
 
 
 class Eval(BaseEval):
@@ -387,7 +407,9 @@ class Invocation(BaseEval):
                     raise TypeError('func %s takes %d args, %d given: %r called on %r' %
                                     (func.name, len(func.params), len(args), self.func_ast, self.expr_asts))
                 new_env = self.env + [{p: a for p, a in zip(func.params, args)}]
-                return Eval(self.values[0].ast, new_env, self.funs)
+                #TODO save state here
+                self.funs.about_to_call(self.values[0])
+                return Eval(self.funs[self.values[0].name].ast, new_env, self.funs)
             elif callable(func):
                 return func(*args)
             raise ValueError("%r doesn't look like a function in %r" % (self.func_ast, self.arg_asts))
