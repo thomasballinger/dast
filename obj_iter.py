@@ -7,15 +7,25 @@ Copy-able objects for evaluation tree, still implementing iterator interface
 Eval('"a"', env=[{}], funs={})
 >>> e = next(d); e
 Literal("a")
+>>> run("(if (+ 1 2) 3 4)")
+3
+>>> run('''((fun countto x y
+...             (do 1
+...             (if (< x y)
+...                 (countto (+ x 1) y)
+...                 x)))
+...         1 2000)''')
+2000
 
-
-#>>> run('''((fun countto x y
-#...             (do 1
-#...             (if (< x y)
-#...                 (countto (+ x 1) y)
-#...                 x)))
-#...         1 1000)''')
-#1000
+#>>> run('''(do
+#...            (fun inc x
+#...                (+ x 1))
+#...            (fun mainloop x y (do
+#...                (set x (inc x))
+#...                (set y (inc y))
+#...                (mainloop x y)))
+#...            (mainloop 1 2))''')
+#2000
 
 
 """
@@ -33,7 +43,7 @@ class Incomplete():
 Incomplete = Incomplete()
 
 
-def run(s, env=None, funs=None):
+def run(s, env=None, funs=None, debug=False):
     """
     >>> run('(+ 1 1)') 
     2
@@ -85,7 +95,7 @@ def eval(ast, env, funs):
             return Literal(ast)
         return Lookup(ast, env, funs)
     if not isinstance(ast, (list, tuple)):
-        raise ValueError(ast)
+        raise ValueError(ast, env, funs)
 
     if ast[0] == 'do':
         return Do(ast[1:], env, funs)
@@ -310,7 +320,7 @@ class If(BaseEval):
 
     def __next__(self):
         if self.value is not None:
-            if self.case2 is None and not self.cond:
+            if self.case2 is None and not self.value:
                 return None
             else:
                 return Eval(self.case1 if self.value else self.case2,
