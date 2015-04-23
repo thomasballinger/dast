@@ -337,48 +337,6 @@ builtins.update(dict_of_public_methods(g))
 
 
 
-game = """
-(do
-    (set x 1)
-    (set y 0)
-    (set dy 0)
-    (set dx 1)
-    (set obstacles (list 1 0 1 0 0 1 0 0))
-    (fun draw-ball-at-mouse (do
-        (display 1)
-        (draw_ball (mousex) (mousey))))
-    (fun jump (do
-        (display 'jump!')
-        (if (= y 0)
-            (do (set dy 20)(display dy)))))
-    (fun step (do
-        (set x (+ x dx))
-        (set y (+ y dy))
-        (if (> x (width))
-            (set x 0))
-        (display x y dx dy)))
-    (fun gravity
-        (if (> y 0)
-            (set dy (- dy 1))
-            (do (set dy 0) (set y 0))))
-    (fun draw-ob x
-        (draw x, (height), 200, 200, 200))
-    (fun draw-obs (do
-        (draw-ob 20)
-        (draw-ob 60)
-        (draw-ob 100)
-        (draw-ob 180)))
-    (loop
-        (do
-            (if (mousepressed?)
-                (jump))
-            (step)
-            (gravity)
-            (background 100 100 100)
-            (draw-obs)
-            (draw-ball x (- (height) y))
-            (render))))
-"""
 
 
 if __name__ == '__main__':
@@ -386,4 +344,5 @@ if __name__ == '__main__':
 
     import doctest
     doctest.testmod()
+    from game import game
     #eval(parse(game))
