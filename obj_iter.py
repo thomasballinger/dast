@@ -18,6 +18,7 @@ Literal("a")
 2000
 """
 import copy
+import time
 
 from gamelib import builtins
 from lisp_parser import parse, Function, Lambda
@@ -43,7 +44,8 @@ class GlobalFunctions(dict):
     def about_to_call(self, func):
         if not isinstance(func, (Function, Lambda)):
             raise ValueError('?')
-        self.snapshots[func.name] = copy.deepcopy(self.top_level)
+        t = time.time()
+        self.snapshots[func.name] = [copy.deepcopy(self.top_level), t]
 
     def __deepcopy__(self, memo):
         return self
@@ -69,6 +71,7 @@ def run(s, env=None, funs=None):
             pass
         elif isinstance(value, BaseEval):
             e = value
+            funs.set_eval_tree(e)
         else:
             return value
 
@@ -388,6 +391,20 @@ class Invocation(BaseEval):
         if self.delegate is None:
             self.delegate = Eval(self.asts[len(self.values)], self.env, self.funs)
             return Incomplete
+        elif len(self.values) == len(self.asts):
+            func = self.values[0]
+            args = self.values[1:]
+            if isinstance(func, (Function, Lambda)):
+                if len(func.params) != len(args):
+                    raise TypeError('func %s takes %d param, %d args given: %r called on %r (-> %r)' %
+                                    (func.name, len(func.params), len(args), self.func_ast, self.arg_asts, args))
+                new_env = self.env + [{p: a for p, a in zip(func.params, args)}]
+                #TODO save state here
+                self.funs.about_to_call(self.values[0])
+                return Eval(self.funs[self.values[0].name].ast, new_env, self.funs)
+            elif callable(func):
+                return func(*args)
+            raise ValueError("%r doesn't look like a function in %r" % (self.func_ast, self.arg_asts))
         else:
             value = next(self.delegate)
             if value is Incomplete:
@@ -398,21 +415,8 @@ class Invocation(BaseEval):
             self.values.append(value)
             if len(self.values) < len(self.asts):
                 self.delegate = Eval(self.asts[len(self.values)], self.env, self.funs)
-                return Incomplete
+            return Incomplete
 
-            func = self.values[0]
-            args = self.values[1:]
-            if isinstance(func, (Function, Lambda)):
-                if len(func.params) != len(args):
-                    raise TypeError('func %s takes %d args, %d given: %r called on %r' %
-                                    (func.name, len(func.params), len(args), self.func_ast, self.expr_asts))
-                new_env = self.env + [{p: a for p, a in zip(func.params, args)}]
-                #TODO save state here
-                self.funs.about_to_call(self.values[0])
-                return Eval(self.funs[self.values[0].name].ast, new_env, self.funs)
-            elif callable(func):
-                return func(*args)
-            raise ValueError("%r doesn't look like a function in %r" % (self.func_ast, self.arg_asts))
 
     def __repr__(self):
         if self.delegate is None:

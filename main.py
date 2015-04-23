@@ -41,20 +41,18 @@ def run_and_check(script, every=1):
     env = [builtins, {}]
     funs = GlobalFunctions()
 
-    ast = parse(game)
+    ast = parse(open(script).read())
     fun_asts = parsed_funs(ast)
 
     e = Eval(ast, env, funs)
     orig = copy.deepcopy(e)
 
     funs.set_eval_tree(e)
-    ast = parse(game)
 
     last_check = time.time()
     while True:
         if time.time() > last_check + every:
             ast, fun_asts, changed_funs, status = check(script, ast, fun_asts)
-            print(status)
             if status in ['new funs', '?', 'funs removed']:
                 e = copy.deepcopy(orig)
             elif status.startswith('funs modified'):
@@ -62,7 +60,9 @@ def run_and_check(script, every=1):
                              if name in funs.snapshots]
                 #TODO find earliest snapshot
                 if snapshots:
-                    (e, ) = snapshots
+                    ((e, t), ) = snapshots
+                    print('snapshot being restored was saved at %s', (t, ))
+                print('restoring snapshot of the last time that %s was about to be run' % (list(changed_funs.keys())[0], ))
                 for fun in changed_funs:
                     old = funs[fun]
                     function = Function(name=old.name,
@@ -71,6 +71,7 @@ def run_and_check(script, every=1):
                                         env=old.env,
                                         funs=old.funs)
                     funs[fun] = function
+                funs.set_eval_tree(e)
             elif status in ['invalid!', 'no change']:
                 pass
             else:
@@ -82,8 +83,19 @@ def run_and_check(script, every=1):
             pass
         elif isinstance(value, BaseEval):
             e = value
+            funs.set_eval_tree(e)
         else:
             return value
+
+test = """
+(do
+    (fun each i (do
+        (display i)
+        (sleep 1)
+        (each (+ i 1))))
+    (display "starting")
+    (each 1))
+"""
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
@@ -91,6 +103,7 @@ if __name__ == '__main__':
         open(script, 'w').write(game)
     elif len(sys.argv) == 2:
         script = sys.argv[1]
+    print(script)
 
     print('watching %s for changes...' % (script, ))
     run_and_check(script)

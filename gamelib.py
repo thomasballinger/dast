@@ -1,4 +1,5 @@
 from __future__ import division
+import time
 import sys
 import operator
 import random
@@ -139,6 +140,7 @@ builtins = PyFuncs({
     'list': lambda *args: tuple(args),
     'foreach': lambda func, arr: [func(x) for x in arr][-1],
     'len': len,
+    'sleep': time.sleep,
     })
 
 
