@@ -27,7 +27,6 @@ Literal("a")
 #...            (mainloop 1 2))''')
 #2000
 
-
 """
 
 from gamelib import builtins
