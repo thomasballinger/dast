@@ -47,6 +47,10 @@ class GlobalFunctions(dict):
         t = time.time()
         self.snapshots[func.name] = [copy.deepcopy(self.top_level), t]
 
+    def __getitem__(self, key):
+        fun = dict.__getitem__(self, key)
+        return fun
+
     def __deepcopy__(self, memo):
         return self
 
@@ -56,24 +60,58 @@ def run(s, env=None, funs=None):
     >>> run('(+ 1 1)')
     2
     """
-    ast = parse(s)
+    runner = Runner(s, env, funs)
+    for value in runner:
+        pass
+    return value
 
-    if env is None:
-        env = [builtins, {}]
-    if funs is None:
-        funs = GlobalFunctions()
 
-    e = Eval(ast, env, funs)
-    funs.set_eval_tree(e)
-    while True:
-        value = next(e)
+class Runner(object):
+    def __init__(self, s, env=None, funs=None):
+        self.ast = parse(s)
+        self.done = False
+        self.i = 0
+
+        if env is None:
+            env = [builtins, {}]
+        if funs is None:
+            funs = GlobalFunctions()
+
+        self.funs = funs
+        self.state = Eval(self.ast, env, funs)
+        funs.set_eval_tree(self.state)
+
+    def update(self, name, params, ast):
+        snapshot = self.funs.snapshots[name]
+        old = self.funs[name]
+        function = Function(name=old.name,
+                            params=params[2:-1],
+                            ast=[ast][-1],
+                            env=old.env,
+                            funs=old.funs)
+        self.funs[name] = function
+        self.state = snapshot
+        self.funs.set_eval_tree(snapshot)
+
+    def step(self):
+        self.i += 1
+        value = next(self.state)
         if value is Incomplete:
             pass
         elif isinstance(value, BaseEval):
-            e = value
-            funs.set_eval_tree(e)
+            self.state = value
+            self.funs.set_eval_tree(self.state)
         else:
+            self.done = True
             return value
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.done:
+            raise StopIteration
+        return self.step()
 
 
 class BaseEval(object):
