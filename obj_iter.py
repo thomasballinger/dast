@@ -398,7 +398,7 @@ class Invocation(BaseEval):
                 if len(func.params) != len(args):
                     raise TypeError('func %s takes %d param, %d args given: %r called on %r (-> %r)' %
                                     (func.name, len(func.params), len(args), self.func_ast, self.arg_asts, args))
-                new_env = self.env + [{p: a for p, a in zip(func.params, args)}]
+                new_env = self.env[:-1] + [{p: a for p, a in zip(func.params, args)}]
                 #TODO save state here
                 self.funs.about_to_call(self.values[0])
                 return Eval(self.funs[self.values[0].name].ast, new_env, self.funs)
