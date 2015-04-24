@@ -71,7 +71,7 @@ def parsed_funs(ast, map=None):
     if map is None:
         map = {}
     if not isinstance(ast, (tuple, list)):
-        return
+        return map
     if ast[0] == 'fun':
         if ast[1] in map:
             raise ValueError('Fun %s declared in two locations' % (ast[1], ))

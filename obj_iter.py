@@ -21,7 +21,7 @@ import copy
 import time
 
 from gamelib import builtins
-from lisp_parser import parse, Function, Lambda
+from lisp_parser import parse, Function, Lambda, parsed_funs
 
 from gen_iter import literal, lookup, setbang
 
@@ -34,6 +34,7 @@ Incomplete = Incomplete()
 
 
 class GlobalFunctions(dict):
+    # TODO put this logic in Runner instead
     def __init__(self):
         dict.__init__(self)
         self.snapshots = {}
@@ -69,6 +70,7 @@ def run(s, env=None, funs=None):
 class Runner(object):
     def __init__(self, s, env=None, funs=None):
         self.ast = parse(s)
+        self.function_asts = parsed_funs(self.ast)
         self.done = False
         self.i = 0
 
@@ -80,18 +82,53 @@ class Runner(object):
         self.funs = funs
         self.state = Eval(self.ast, env, funs)
         funs.set_eval_tree(self.state)
+        self.orig_eval = copy.deepcopy(self.state)
 
-    def update(self, name, params, ast):
-        snapshot = self.funs.snapshots[name]
-        old = self.funs[name]
-        function = Function(name=old.name,
-                            params=params[2:-1],
-                            ast=[ast][-1],
-                            env=old.env,
-                            funs=old.funs)
-        self.funs[name] = function
-        self.state = snapshot
-        self.funs.set_eval_tree(snapshot)
+    def reset(self):
+        self.state = copy.deepcopy(self.orig_eval)
+
+    def diff_funs(self, old_funs, new_funs):
+        """Returns new, removed, and modified function names"""
+        return (set(new_funs) - set(old_funs),
+                set(old_funs) - set(new_funs),
+                set(name for name in new_funs
+                    if new_funs[name] != old_funs[name]))
+
+    def update(self, s):
+        ast = parse(s)
+        if ast == self.ast:
+            return
+        print('ast changed!')
+
+        new_fun_asts = parsed_funs(ast)
+        new, removed, modified = self.diff_funs(self.function_asts, new_fun_asts)
+        self.function_asts = new_fun_asts
+        self.ast = ast
+        if modified:
+            print('ast modified! changed function %s' % (modified, ))
+        if new or removed or len(modified) > 1:
+            raise ValueError("can't cope with that change yet: new:%r removed:%r modified:%r" % (new, removed, modified))
+
+        if modified:
+            (name, ) = modified
+
+            old = self.funs[name]
+            function = Function(name=old.name,
+                                params=new_fun_asts[name][2:-1],
+                                ast=new_fun_asts[name][-1],
+                                env=old.env,
+                                funs=old.funs)
+            self.funs[name] = function
+
+            if name not in self.funs.snapshots:
+                return
+            snapshot, t = self.funs.snapshots[name]
+            print('restoring snapshot from %s' % (t, ))
+            self.state = snapshot
+            self.funs.set_eval_tree(self.state)
+        else:  # must have been in top level expression
+            self.state = self.orig_eval
+            self.funs.set_eval_tree(self.state)
 
     def step(self):
         self.i += 1
